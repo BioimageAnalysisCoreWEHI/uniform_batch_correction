@@ -234,23 +234,29 @@ def load_image_as_cyx(path):
 
 
 def sample_pixels(channel_arr, sample_size, min_value):
-    flat = channel_arr.reshape(-1).astype(float)
+    flat = np.ravel(channel_arr)
     valid = flat[flat >= min_value]
     if valid.size == 0:
         return np.array([0.0], dtype=float)
     if valid.size <= sample_size:
-        return valid
+        return np.asarray(valid, dtype=float)
     rng = np.random.default_rng(0)
     idx = rng.choice(valid.size, size=sample_size, replace=False)
-    return valid[idx]
+    return np.asarray(valid[idx], dtype=float)
 
 
 def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sample_size):
     sample_ids = [Path(path).stem.replace('.ome', '') for path in paths]
-    images = [load_image_as_cyx(path) for path in paths]
+    n_samples = len(paths)
 
-    n_samples = len(images)
-    n_channels = min(img.shape[0] for img in images)
+    n_channels = None
+    for path in paths:
+        image = load_image_as_cyx(path)
+        channels_here = int(image.shape[0])
+        n_channels = channels_here if n_channels is None else min(n_channels, channels_here)
+
+    if n_channels is None or n_channels <= 0:
+        raise ValueError("No valid image channels found for pixel normalization")
 
     scales_by_channel = {}
     ch_diagnostics = {}
@@ -261,7 +267,8 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
             global_min = float("inf")
             global_max = float("-inf")
 
-            for image in images:
+            for path in paths:
+                image = load_image_as_cyx(path)
                 sampled = sample_pixels(image[channel], pixel_sample_size, min_value=min_value)
                 log_vals = log_transform(sampled, min_value=min_value)
                 log_vals = log_vals[np.isfinite(log_vals)]
@@ -306,17 +313,21 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
             }
 
     outputs = []
-    for sample_idx, (path, image) in enumerate(zip(paths, images)):
-        corrected = image.astype(np.float64, copy=True)
-        for channel in range(n_channels):
-            corrected[channel] *= float(scales_by_channel[channel][sample_idx])
-
+    for sample_idx, path in enumerate(paths):
+        image = load_image_as_cyx(path)
+        corrected = np.empty_like(image)
         orig_dtype = image.dtype
-        if np.issubdtype(orig_dtype, np.integer):
-            info = np.iinfo(orig_dtype)
-            corrected = np.clip(corrected, info.min, info.max).astype(orig_dtype)
-        else:
-            corrected = corrected.astype(orig_dtype)
+
+        for channel in range(n_channels):
+            scale = float(scales_by_channel[channel][sample_idx])
+            channel_scaled = image[channel].astype(np.float32, copy=False) * scale
+            if np.issubdtype(orig_dtype, np.integer):
+                info = np.iinfo(orig_dtype)
+                channel_scaled = np.clip(channel_scaled, info.min, info.max)
+            corrected[channel] = channel_scaled.astype(orig_dtype, copy=False)
+
+        if image.shape[0] > n_channels:
+            corrected[n_channels:] = image[n_channels:]
 
         out_path = output_path_for_image(path, pixel_output_suffix)
         tifffile.imwrite(out_path, corrected)
