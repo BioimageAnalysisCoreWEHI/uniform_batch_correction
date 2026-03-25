@@ -55,7 +55,7 @@
     },
     "uniform_qc_top_n_keys": {
       "type": "integer",
-      "default": 12,
+      "default": 40,
       "minimum": 1,
       "maximum": 200,
       "description": "Number of most-changed keys to render before/after distribution plots"
