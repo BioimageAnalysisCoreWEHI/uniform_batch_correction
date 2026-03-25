@@ -21,7 +21,7 @@ nextflow run . \
   --outdir results
 ```
 
-The `large` profile targets SLURM large-memory nodes (default queue `lrg`) and increases process resources for large images.
+The `large` profile targets SLURM large-memory nodes (default queue `regular`) and increases process resources for large images.
 
 ## Key parameters
 
