@@ -1,2 +1,2 @@
-sample,geojson
-sample1,/path/to/sample1.geojson
+sample,geojson,ome_tiff
+sample1,/path/to/sample1.geojson,/path/to/sample1.ome.tiff

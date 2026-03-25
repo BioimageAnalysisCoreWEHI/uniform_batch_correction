@@ -1,7 +1,7 @@
 ---
 # yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/meta-schema.json
 name: "uniformnormalize"
-description: Normalize numeric cellmeasurement features across GeoJSON files and write normalized outputs.
+description: Normalize cellmeasurement GeoJSON features and/or OME-TIFF channel intensities across cohorts.
 keywords:
   - uniform
   - normalization
@@ -18,10 +18,10 @@ tools:
       identifier: ""
 
 input:
-  - - geojson:
+  - - input_file:
         type: file
-        description: One or more GeoJSON files from cellmeasurement
-        pattern: "*.geojson"
+        description: One or more input files (*.geojson, *.ome.tiff, *.tiff)
+        pattern: "*.{geojson,tiff,tif}"
 
 output:
   - normalized_annotations:
@@ -29,6 +29,16 @@ output:
           type: file
           description: GeoJSON files with normalized measurement values
           pattern: "*_uniform.geojson"
+
+  - normalized_images:
+    - "*_uniform.ome.tiff":
+      type: file
+      description: OME-TIFF files with normalized channel intensities
+      pattern: "*_uniform.ome.tiff"
+    - "*_uniform.tiff":
+      type: file
+      description: TIFF files with normalized channel intensities
+      pattern: "*_uniform.tiff"
 
   - versions:
       - "versions.yml":

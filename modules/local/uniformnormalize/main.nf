@@ -9,7 +9,9 @@ process UNIFORMNORMALIZE {
     path(geojsons)
 
     output:
-    path "*_uniform.geojson"            , emit: normalized_annotations
+    path "*_uniform.geojson"            , emit: normalized_annotations, optional: true
+    path "*_uniform.tiff"               , emit: normalized_images, optional: true
+    path "*_uniform.ome.tiff"           , emit: normalized_images_ome, optional: true
     path "qc/*"                         , emit: qc
     path "versions.yml"                 , emit: versions
 

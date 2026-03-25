@@ -6,7 +6,11 @@
   "type": "array",
   "items": {
     "type": "object",
-    "required": ["sample", "geojson"],
+    "required": ["sample"],
+    "anyOf": [
+      { "required": ["geojson"] },
+      { "required": ["ome_tiff"] }
+    ],
     "properties": {
       "sample": {
         "type": "string",
@@ -16,6 +20,11 @@
         "type": "string",
         "format": "file-path",
         "description": "Path to cellmeasurement GeoJSON"
+      },
+      "ome_tiff": {
+        "type": "string",
+        "format": "file-path",
+        "description": "Path to input OME-TIFF/TIFF for pixel-level normalization"
       }
     }
   }

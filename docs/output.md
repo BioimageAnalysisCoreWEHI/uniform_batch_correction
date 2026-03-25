@@ -6,6 +6,10 @@
   - Input GeoJSON files with normalized numeric cellmeasurement keys.
   - Keys matching `uniform_exclude_pattern` are left unchanged.
 
+- `uniformnormalize/*_uniform.ome.tiff` and/or `uniformnormalize/*_uniform.tiff`
+  - Input OME-TIFF/TIFF files with per-channel cohort-level scaling applied.
+  - Output format follows the input extension where possible.
+
 ## QC output
 
 - `uniformnormalize/qc/uniform_key_summary.csv`

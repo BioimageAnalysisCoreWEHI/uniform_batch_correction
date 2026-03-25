@@ -25,6 +25,12 @@
       "default": true,
       "description": "Master switch for UniFORM-style normalization. If true, per-key cohort alignment is applied and normalized GeoJSON files are written. If false, inputs are passed through unchanged (useful for baseline comparisons)."
     },
+    "uniform_apply_to": {
+      "type": "string",
+      "default": "geojson",
+      "enum": ["geojson", "ome_tiff", "both"],
+      "description": "Select normalization target: geojson (cellmeasurement numeric fields), ome_tiff (pixel-level per-channel scaling), or both."
+    },
     "uniform_num_bins": {
       "type": "integer",
       "default": 1024,
@@ -47,6 +53,18 @@
       "type": "string",
       "default": "_uniform",
       "description": "Suffix appended to normalized output filenames before .geojson (e.g. sample.geojson -> sample_uniform.geojson)."
+    },
+    "uniform_pixel_output_suffix": {
+      "type": "string",
+      "default": "_uniform",
+      "description": "Suffix appended to normalized OME-TIFF/TIFF filenames (e.g. sample.ome.tiff -> sample_uniform.ome.tiff)."
+    },
+    "uniform_pixel_sample_size": {
+      "type": "integer",
+      "default": 200000,
+      "minimum": 1000,
+      "maximum": 5000000,
+      "description": "Maximum sampled pixels per channel per image for histogram shift estimation in pixel mode. Higher values improve stability but increase runtime/memory."
     },
     "uniform_generate_plots": {
       "type": "boolean",
