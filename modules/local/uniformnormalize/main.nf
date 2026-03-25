@@ -21,8 +21,9 @@ process UNIFORMNORMALIZE {
     script:
     def args = task.ext.args ?: ''
     def geojson_list = geojsons.join(' ')
+    def uniform_script = "${projectDir}/bin/uniform_normalize_geojson.py"
     """
-    python uniform_normalize_geojson.py \\
+    python ${uniform_script} \
         --inputs ${geojson_list} \\
         --qc-dir qc \\
         ${args}
