@@ -13,59 +13,59 @@
       "schema": "assets/schema_input.json",
       "mimetype": "text/csv",
       "pattern": "^\\S+\\.(csv|y(a)?ml)$",
-      "description": "Path to samplesheet with sample and geojson columns"
+      "description": "Path to input samplesheet (CSV or YAML). Must contain at least 'sample' and 'geojson' columns/fields. Each row defines one sample ID and one input GeoJSON file to include in cohort-level normalization."
     },
     "outdir": {
       "type": "string",
       "format": "directory-path",
-      "description": "Output directory"
+      "description": "Output directory for normalized GeoJSONs, QC artifacts, and versions metadata. Results are published under subfolders such as uniformnormalize/ and uniformnormalize/qc/."
     },
     "run_uniform": {
       "type": "boolean",
       "default": true,
-      "description": "Enable normalization step"
+      "description": "Master switch for UniFORM-style normalization. If true, per-key cohort alignment is applied and normalized GeoJSON files are written. If false, inputs are passed through unchanged (useful for baseline comparisons)."
     },
     "uniform_num_bins": {
       "type": "integer",
       "default": 1024,
       "minimum": 32,
       "maximum": 8192,
-      "description": "Histogram bins used for alignment"
+      "description": "Number of histogram bins used when estimating per-key distribution shifts across samples. Higher values provide finer alignment but can increase noise sensitivity and runtime; lower values are smoother and faster but less precise."
     },
     "uniform_min_value": {
       "type": "number",
       "default": 1.0,
       "minimum": 0.0,
-      "description": "Minimum value threshold before log transform"
+      "description": "Minimum measurement value retained before log transform and shift estimation. Values below this threshold are excluded from alignment calculations. Increase if low-intensity noise dominates."
     },
     "uniform_exclude_pattern": {
       "type": "string",
       "default": "^(kronos_|emb_)",
-      "description": "Regex for measurement keys excluded from normalization"
+      "description": "Regular expression used to exclude measurement keys from normalization. Any key matching this pattern is copied unchanged to outputs (default protects KRONOS/embedding fields)."
     },
     "uniform_output_suffix": {
       "type": "string",
       "default": "_uniform",
-      "description": "Suffix for normalized output files"
+      "description": "Suffix appended to normalized output filenames before .geojson (e.g. sample.geojson -> sample_uniform.geojson)."
     },
     "uniform_generate_plots": {
       "type": "boolean",
       "default": true,
-      "description": "Generate QC plots for before/after distributions and scale factors"
+      "description": "If true, generate QC plots including before/after distribution overlays and scale-factor heatmaps. Disable for faster non-visual runs or minimal output mode."
     },
     "uniform_qc_top_n_keys": {
       "type": "integer",
       "default": 40,
       "minimum": 1,
       "maximum": 200,
-      "description": "Number of most-changed keys to render before/after distribution plots"
+      "description": "Number of top-ranked (most adjusted) measurement keys to render as before/after histogram overlays. Larger values improve coverage but produce more plot files and longer plotting time."
     },
     "uniform_qc_max_heatmap_keys": {
       "type": "integer",
       "default": 40,
       "minimum": 1,
       "maximum": 500,
-      "description": "Maximum number of keys shown in the scale-factor heatmap"
+      "description": "Maximum number of measurement keys displayed in the scale-factor heatmap (rows). Higher values provide broader overview across features; lower values improve readability and reduce figure density."
     }
   }
 }
