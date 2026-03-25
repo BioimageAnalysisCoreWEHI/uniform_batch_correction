@@ -1,0 +1,9 @@
+.nextflow*
+work/
+results/
+test_output/
+*.log
+*.trace
+*.dot
+*.svg
+.DS_Store

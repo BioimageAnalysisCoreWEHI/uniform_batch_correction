@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/BioimageAnalysisCoreWEHI/uniform_batch_correction/main/assets/schema_input.json",
+  "title": "uniform_batch_correction input schema",
+  "description": "Samplesheet schema",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["sample", "geojson"],
+    "properties": {
+      "sample": {
+        "type": "string",
+        "description": "Sample identifier"
+      },
+      "geojson": {
+        "type": "string",
+        "format": "file-path",
+        "description": "Path to cellmeasurement GeoJSON"
+      }
+    }
+  }
+}

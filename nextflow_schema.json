@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/BioimageAnalysisCoreWEHI/uniform_batch_correction/main/nextflow_schema.json",
+  "title": "uniform_batch_correction pipeline parameters",
+  "description": "Standalone UniFORM-style normalization for cellmeasurement GeoJSON outputs",
+  "type": "object",
+  "required": ["input", "outdir"],
+  "properties": {
+    "input": {
+      "type": "string",
+      "format": "file-path",
+      "exists": true,
+      "schema": "assets/schema_input.json",
+      "mimetype": "text/csv",
+      "pattern": "^\\S+\\.(csv|y(a)?ml)$",
+      "description": "Path to samplesheet with sample and geojson columns"
+    },
+    "outdir": {
+      "type": "string",
+      "format": "directory-path",
+      "description": "Output directory"
+    },
+    "run_uniform": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable normalization step"
+    },
+    "uniform_num_bins": {
+      "type": "integer",
+      "default": 1024,
+      "minimum": 32,
+      "maximum": 8192,
+      "description": "Histogram bins used for alignment"
+    },
+    "uniform_min_value": {
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0.0,
+      "description": "Minimum value threshold before log transform"
+    },
+    "uniform_exclude_pattern": {
+      "type": "string",
+      "default": "^(kronos_|emb_)",
+      "description": "Regex for measurement keys excluded from normalization"
+    },
+    "uniform_output_suffix": {
+      "type": "string",
+      "default": "_uniform",
+      "description": "Suffix for normalized output files"
+    },
+    "uniform_generate_plots": {
+      "type": "boolean",
+      "default": true,
+      "description": "Generate QC plots for before/after distributions and scale factors"
+    },
+    "uniform_qc_top_n_keys": {
+      "type": "integer",
+      "default": 12,
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Number of most-changed keys to render before/after distribution plots"
+    },
+    "uniform_qc_max_heatmap_keys": {
+      "type": "integer",
+      "default": 40,
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Maximum number of keys shown in the scale-factor heatmap"
+    }
+  }
+}

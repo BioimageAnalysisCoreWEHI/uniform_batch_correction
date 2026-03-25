@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/meta-schema.json
+name: "uniformnormalize"
+description: Normalize numeric cellmeasurement features across GeoJSON files and write normalized outputs.
+keywords:
+  - uniform
+  - normalization
+  - geojson
+  - batch-correction
+tools:
+  - "uniformnormalize":
+      description: "Standalone UniFORM-style GeoJSON measurement normalization"
+      homepage: "https://github.com/BioimageAnalysisCoreWEHI/uniform_batch_correction"
+      documentation: "https://github.com/BioimageAnalysisCoreWEHI/uniform_batch_correction"
+      tool_dev_url: "https://github.com/BioimageAnalysisCoreWEHI/uniform_batch_correction"
+      doi: ""
+      licence: "MIT"
+      identifier: ""
+
+input:
+  - - geojson:
+        type: file
+        description: One or more GeoJSON files from cellmeasurement
+        pattern: "*.geojson"
+
+output:
+  - normalized_annotations:
+      - "*_uniform.geojson":
+          type: file
+          description: GeoJSON files with normalized measurement values
+          pattern: "*_uniform.geojson"
+
+  - versions:
+      - "versions.yml":
+          type: file
+          description: File containing software versions
+          pattern: "versions.yml"
