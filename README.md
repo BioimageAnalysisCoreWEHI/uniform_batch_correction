@@ -16,10 +16,12 @@ Example CSV is provided in [assets/samplesheet.csv](assets/samplesheet.csv).
 
 ```bash
 nextflow run . \
-  -profile conda \
+  -profile conda,large \
   --input assets/samplesheet.csv \
   --outdir results
 ```
+
+The `large` profile targets SLURM large-memory nodes (default queue `lrg`) and increases process resources for large images.
 
 ## Key parameters
 
