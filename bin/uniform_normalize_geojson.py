@@ -20,7 +20,7 @@ from scipy.signal import correlate
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Normalize GeoJSON measurements and/or OME-TIFF intensities")
+    parser = argparse.ArgumentParser(description="Normalize GeoJSON measurements, OME-TIFF intensities, or AnnData features")
     parser.add_argument("--inputs", nargs="+", required=True, help="Input files")
     parser.add_argument("--mode", choices=["geojson", "ome_tiff", "adata"], default="geojson")
     parser.add_argument("--num-bins", type=int, default=1024)
@@ -29,6 +29,10 @@ def parse_args():
     parser.add_argument("--output-suffix", default="_uniform")
     parser.add_argument("--pixel-output-suffix", default="_unifrom")
     parser.add_argument("--pixel-sample-size", type=int, default=200000)
+    parser.add_argument("--adata-group-by", default="image")
+    parser.add_argument("--adata-sample-size", type=int, default=200000)
+    parser.add_argument("--adata-filter-column", default="")
+    parser.add_argument("--adata-filter-regex", default="")
     parser.add_argument("--qc-dir", default="qc")
     parser.add_argument("--generate-plots", default="true")
     parser.add_argument("--qc-top-n-keys", type=int, default=12)
@@ -409,13 +413,20 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
 
 # ------------------------------ ADATA MODE ------------------------------
 
-def get_adata_feature_values(adata_obj, feature_idx, min_value):
+def sample_adata_group_feature_values(adata_obj, obs_idx, feature_idx, sample_size, min_value, rng):
+    if obs_idx.size == 0:
+        return np.array([0.0], dtype=float)
+
+    if obs_idx.size > sample_size:
+        chosen_obs = np.asarray(rng.choice(obs_idx, size=sample_size, replace=False), dtype=np.int64)
+    else:
+        chosen_obs = np.asarray(obs_idx, dtype=np.int64)
+
     matrix = adata_obj.X
     if sparse.issparse(matrix):
-        col = matrix.getcol(feature_idx)
-        values = np.asarray(col.data, dtype=float)
+        values = np.asarray(matrix[chosen_obs, feature_idx].toarray(), dtype=float).ravel()
     else:
-        values = np.asarray(matrix[:, feature_idx], dtype=float).ravel()
+        values = np.asarray(matrix[chosen_obs, feature_idx], dtype=float).ravel()
 
     valid = values[values >= min_value]
     if valid.size == 0:
@@ -424,6 +435,20 @@ def get_adata_feature_values(adata_obj, feature_idx, min_value):
 
 
 def infer_adata_feature_names(adata_obj):
+    preferred_cols = [col for col in ["feature_type", "marker", "compartment", "statistic"] if col in adata_obj.var.columns]
+    if preferred_cols:
+        names = []
+        for row_idx in range(int(adata_obj.n_vars)):
+            parts = []
+            for col in preferred_cols:
+                value = adata_obj.var.iloc[row_idx][col]
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text and text.lower() != "nan":
+                    parts.append(text)
+            names.append("|".join(parts) if parts else str(adata_obj.var_names[row_idx]))
+        return names
     if "marker_name" in adata_obj.var.columns:
         return [str(v) for v in adata_obj.var["marker_name"].tolist()]
     if "feature_name" in adata_obj.var.columns:
@@ -431,14 +456,79 @@ def infer_adata_feature_names(adata_obj):
     return [str(v) for v in adata_obj.var_names.tolist()]
 
 
-def normalize_adata(paths, num_bins, min_value, output_suffix):
-    sample_ids = [Path(path).stem for path in paths]
-    n_samples = len(paths)
-    print(f"[adata] Loaded {n_samples} AnnData sample(s)")
+def select_adata_feature_indices(adata_obj, feature_names, filter_column, filter_regex):
+    if not filter_regex:
+        return list(range(len(feature_names)))
+
+    regex = re.compile(filter_regex)
+
+    if filter_column:
+        if filter_column not in adata_obj.var.columns:
+            available = ", ".join([str(col) for col in adata_obj.var.columns[:30]])
+            raise ValueError(
+                f"AnnData var column '{filter_column}' was not found for adata filtering. Available columns (first 30): {available}"
+            )
+        values = [str(v) for v in adata_obj.var[filter_column].tolist()]
+    else:
+        values = feature_names
+
+    selected = [idx for idx, text in enumerate(values) if regex.search(text)]
+    return selected
+
+
+def build_adata_group_records(adatas, paths, group_by):
+    records = []
+    for adata_idx, adata_obj in enumerate(adatas):
+        if group_by not in adata_obj.obs.columns:
+            available = ", ".join([str(col) for col in adata_obj.obs.columns[:20]])
+            raise ValueError(
+                f"AnnData file '{paths[adata_idx]}' is missing obs column '{group_by}'. Available columns (first 20): {available}"
+            )
+
+        grouping = adata_obj.obs[group_by].astype(str)
+        grouped_indices = grouping.groupby(grouping).indices
+
+        for group_value, indices in grouped_indices.items():
+            obs_idx = np.asarray(indices, dtype=np.int64)
+            if obs_idx.size == 0:
+                continue
+            label = group_value if len(adatas) == 1 else f"{Path(paths[adata_idx]).stem}:{group_value}"
+            records.append(
+                {
+                    "adata_idx": adata_idx,
+                    "group": group_value,
+                    "label": label,
+                    "obs_idx": obs_idx,
+                }
+            )
+
+    return records
+
+
+def normalize_adata(
+    paths,
+    num_bins,
+    min_value,
+    output_suffix,
+    group_by,
+    adata_sample_size,
+    adata_filter_column,
+    adata_filter_regex,
+):
+    n_files = len(paths)
+    print(f"[adata] Loaded {n_files} AnnData file(s)")
 
     adatas = [ad.read_h5ad(path) for path in paths]
     if not adatas:
         raise ValueError("No AnnData inputs found")
+
+    group_records = build_adata_group_records(adatas, paths, group_by)
+    sample_ids = [record["label"] for record in group_records]
+    n_samples = len(sample_ids)
+    print(f"[adata] Grouping by obs['{group_by}'] yielded {n_samples} sample group(s)")
+
+    if n_samples <= 0:
+        raise ValueError(f"No non-empty groups were found using obs column '{group_by}'")
 
     n_features = min(int(adata_obj.n_vars) for adata_obj in adatas)
     if n_features <= 0:
@@ -447,20 +537,50 @@ def normalize_adata(paths, num_bins, min_value, output_suffix):
     feature_names = infer_adata_feature_names(adatas[0])[:n_features]
     print(f"[adata] Detected {n_features} feature(s)")
 
+    selected_features = select_adata_feature_indices(
+        adatas[0],
+        feature_names,
+        filter_column=adata_filter_column,
+        filter_regex=adata_filter_regex,
+    )
+
+    if adata_filter_regex:
+        source_desc = adata_filter_column if adata_filter_column else "feature names"
+        print(
+            f"[adata] Filtered features using regex '{adata_filter_regex}' on {source_desc}: "
+            f"{len(selected_features)}/{n_features} selected"
+        )
+    else:
+        print(f"[adata] No adata feature filter set; normalizing all {n_features} features")
+
+    if len(selected_features) == 0:
+        print("[adata] Warning: zero features matched filter. AnnData outputs will be written unchanged.")
+
     scales_by_feature = {}
     diagnostics = {}
+    rng = np.random.default_rng(0)
 
-    if n_samples >= 2:
-        for feature_idx in range(n_features):
+    if n_samples >= 2 and selected_features:
+        for loop_idx, feature_idx in enumerate(selected_features, start=1):
             if feature_idx == 0 or (feature_idx + 1) % 50 == 0 or feature_idx == n_features - 1:
                 print(f"[adata] Processing feature {feature_idx + 1}/{n_features}: {feature_names[feature_idx]}")
+            elif loop_idx == 1 or loop_idx % 50 == 0 or loop_idx == len(selected_features):
+                print(f"[adata] Processing selected feature {loop_idx}/{len(selected_features)}: {feature_names[feature_idx]}")
 
             sample_values = []
             global_min = float("inf")
             global_max = float("-inf")
 
-            for adata_obj in adatas:
-                values = get_adata_feature_values(adata_obj, feature_idx, min_value=min_value)
+            for record in group_records:
+                adata_obj = adatas[record["adata_idx"]]
+                values = sample_adata_group_feature_values(
+                    adata_obj,
+                    record["obs_idx"],
+                    feature_idx,
+                    sample_size=adata_sample_size,
+                    min_value=min_value,
+                    rng=rng,
+                )
                 log_vals = log_transform(values, min_value=min_value)
                 log_vals = log_vals[np.isfinite(log_vals)]
                 if log_vals.size == 0:
@@ -502,7 +622,7 @@ def normalize_adata(paths, num_bins, min_value, output_suffix):
                 "global_max": global_max,
             }
     else:
-        for feature_idx in range(n_features):
+        for feature_idx in selected_features:
             scales_by_feature[feature_idx] = [1.0]
             diagnostics[feature_idx] = {
                 "reference_sample": sample_ids[0],
@@ -512,14 +632,31 @@ def normalize_adata(paths, num_bins, min_value, output_suffix):
                 "global_max": 0.0,
             }
 
-    for sample_idx, adata_obj in enumerate(adatas):
-        scale_vector = np.asarray([scales_by_feature[idx][sample_idx] for idx in range(n_features)], dtype=float)
-        matrix = adata_obj.X
+    per_sample_scale_vectors = []
+    for sample_idx in range(n_samples):
+        vec = np.ones(n_features, dtype=float)
+        for feature_idx in selected_features:
+            vec[feature_idx] = float(scales_by_feature[feature_idx][sample_idx])
+        per_sample_scale_vectors.append(vec)
 
+    for adata_idx, adata_obj in enumerate(adatas):
+        matrix = adata_obj.X
         if sparse.issparse(matrix):
-            adata_obj.X = matrix @ sparse.diags(scale_vector)
+            matrix = matrix.tocsr(copy=True)
         else:
-            adata_obj.X = np.asarray(matrix, dtype=float) * scale_vector
+            matrix = np.asarray(matrix, dtype=float)
+
+        for sample_idx, record in enumerate(group_records):
+            if record["adata_idx"] != adata_idx:
+                continue
+            obs_idx = record["obs_idx"]
+            scale_vector = per_sample_scale_vectors[sample_idx]
+            if sparse.issparse(matrix):
+                matrix[obs_idx, :] = matrix[obs_idx, :].multiply(scale_vector)
+            else:
+                matrix[obs_idx, :] = matrix[obs_idx, :] * scale_vector
+
+        adata_obj.X = matrix
 
     outputs = []
     for path, adata_obj in zip(paths, adatas):
@@ -529,13 +666,13 @@ def normalize_adata(paths, num_bins, min_value, output_suffix):
         print(f"[adata] Wrote normalized AnnData: {out_path}")
 
     ranked_features = sorted(
-        range(n_features),
+        selected_features,
         key=lambda idx: float(np.std(np.log(np.asarray(scales_by_feature[idx], dtype=float) + 1e-12))),
         reverse=True,
     )
     feature_name_map = {idx: feature_names[idx] for idx in range(n_features)}
 
-    return sample_ids, feature_name_map, diagnostics, ranked_features, outputs
+    return sample_ids, group_records, feature_name_map, diagnostics, ranked_features, outputs
 
 
 # ------------------------------ QC ------------------------------
@@ -782,11 +919,12 @@ def plot_pixel_histograms_qc(
 def plot_adata_qc(
     qc_dir,
     paths,
-    sample_ids,
+    group_records,
     feature_name_map,
     diagnostics,
     ranked_features,
     min_value,
+    adata_sample_size,
     top_n_features,
     max_heatmap_features,
 ):
@@ -798,6 +936,8 @@ def plot_adata_qc(
 
     adatas = [ad.read_h5ad(path) for path in paths]
     saved = []
+    sample_ids = [record["label"] for record in group_records]
+    rng = np.random.default_rng(0)
 
     selected_features = ranked_features[: max(0, top_n_features)]
     for feature_idx in selected_features:
@@ -806,8 +946,16 @@ def plot_adata_qc(
         global_max = diag["global_max"]
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=140)
-        for sample_idx, (sid, adata_obj) in enumerate(zip(sample_ids, adatas)):
-            values = get_adata_feature_values(adata_obj, feature_idx, min_value=min_value)
+        for sample_idx, (sid, record) in enumerate(zip(sample_ids, group_records)):
+            adata_obj = adatas[record["adata_idx"]]
+            values = sample_adata_group_feature_values(
+                adata_obj,
+                record["obs_idx"],
+                feature_idx,
+                sample_size=adata_sample_size,
+                min_value=min_value,
+                rng=rng,
+            )
             scale = float(diag["scales"][sample_idx])
 
             before_vals = log_transform(values, min_value=min_value)
@@ -969,11 +1117,15 @@ def main():
         adata_inputs = [path for path in args.inputs if path.lower().endswith(".h5ad")]
         if adata_inputs:
             print(f"[adata] Starting normalization for {len(adata_inputs)} input file(s)")
-            sample_ids, feature_name_map, diagnostics, ranked_features, adata_outputs = normalize_adata(
+            sample_ids, group_records, feature_name_map, diagnostics, ranked_features, adata_outputs = normalize_adata(
                 adata_inputs,
                 num_bins=args.num_bins,
                 min_value=args.min_value,
                 output_suffix=args.output_suffix,
+                group_by=args.adata_group_by,
+                adata_sample_size=args.adata_sample_size,
+                adata_filter_column=args.adata_filter_column,
+                adata_filter_regex=args.adata_filter_regex,
             )
             outputs.extend(adata_outputs)
 
@@ -991,11 +1143,12 @@ def main():
                 for plot_path in plot_adata_qc(
                     qc_dir,
                     adata_inputs,
-                    sample_ids,
+                    group_records,
                     feature_name_map,
                     diagnostics,
                     ranked_features,
                     args.min_value,
+                    args.adata_sample_size,
                     args.qc_top_n_keys,
                     args.qc_max_heatmap_keys,
                 ):

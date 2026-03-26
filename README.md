@@ -11,6 +11,9 @@ Provide a CSV/YAML samplesheet with:
 - `ome_tiff`: path to input OME-TIFF/TIFF image (for pixel-level mode)
 - `adata`: path to input AnnData `.h5ad` file (for feature-level matrix mode)
 
+For `adata` mode, normalization is performed per group inside each `.h5ad` using an `obs` column (default: `image`).
+Each unique group value is treated as one sample for cohort alignment.
+
 Example CSV is provided in [assets/samplesheet.csv](assets/samplesheet.csv).
 
 ## Usage
@@ -34,6 +37,10 @@ The `large` profile targets SLURM large-memory nodes (default queue `regular`) a
 - `--uniform_output_suffix` (default: `_uniform`)
 - `--uniform_pixel_output_suffix` (default: `_unifrom`)
 - `--uniform_pixel_sample_size` (default: `200000`)
+- `--uniform_adata_group_by` (default: `image`)
+- `--uniform_adata_sample_size` (default: `200000`)
+- `--uniform_adata_filter_column` (default: empty; e.g. `statistic`)
+- `--uniform_adata_filter_regex` (default: empty; only matching features are normalized)
 - `--uniform_generate_plots` (default: `true`)
 - `--uniform_qc_top_n_keys` (default: `12`)
 - `--uniform_qc_max_heatmap_keys` (default: `40`)

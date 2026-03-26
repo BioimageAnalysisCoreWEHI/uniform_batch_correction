@@ -8,7 +8,9 @@
 
 - `uniformnormalize/*_uniform.h5ad`
   - Input AnnData files with per-feature cohort-level scaling applied to `X`.
-  - Feature names are inferred from `marker_name`, `feature_name`, or `var_names`.
+  - Samples are defined by `obs` groups (default `image`), so all cells from one image are normalized together.
+  - Feature names are inferred from `var` metadata (`feature_type|marker|compartment|statistic`) when available.
+  - If `uniform_adata_filter_regex` is set, only matching features are normalized; all other features in `X` remain unchanged.
 
 - `uniformnormalize/*_uniform.ome.tiff` and/or `uniformnormalize/*_uniform.tiff`
   - Input OME-TIFF/TIFF files with per-channel cohort-level scaling applied.

@@ -18,6 +18,10 @@ Optional tuning:
 --uniform_output_suffix _uniform \\
 --uniform_pixel_output_suffix _unifrom \\
 --uniform_pixel_sample_size 200000 \\
+--uniform_adata_group_by image \\
+--uniform_adata_sample_size 200000 \\
+--uniform_adata_filter_column statistic \\
+--uniform_adata_filter_regex '(?i)^mean$|intensity' \\
 --uniform_generate_plots true \\
 --uniform_qc_top_n_keys 12 \\
 --uniform_qc_max_heatmap_keys 40
@@ -40,6 +44,9 @@ nextflow run . \\
   -profile conda \\
   --input /path/to/samplesheet.csv \\
   --outdir /path/to/results \\
-  --uniform_apply_to adata
+  --uniform_apply_to adata \\
+  --uniform_adata_group_by image \\
+  --uniform_adata_filter_column statistic \\
+  --uniform_adata_filter_regex '(?i)^mean$|intensity'
 ```
 
