@@ -11,14 +11,14 @@ process UNIFORMNORMALIZE {
     output:
     path "*_uniform.geojson"            , emit: normalized_annotations, optional: true
     path "*_uniform.h5ad"               , emit: normalized_adata, optional: true
-    path "*_unifrom.tif"                , emit: normalized_images, optional: true
-    path "*_uniform.tif"                , emit: normalized_images, optional: true
-    path "*_unifrom.tiff"               , emit: normalized_images, optional: true
-    path "*_uniform.tiff"               , emit: normalized_images, optional: true
-    path "*_unifrom.ome.tif"            , emit: normalized_images_ome, optional: true
-    path "*_uniform.ome.tif"            , emit: normalized_images_ome, optional: true
-    path "*_unifrom.ome.tiff"           , emit: normalized_images_ome, optional: true
-    path "*_uniform.ome.tiff"           , emit: normalized_images_ome, optional: true
+    path "*_unifrom.tif"                , emit: normalized_images_tif_unifrom, optional: true
+    path "*_uniform.tif"                , emit: normalized_images_tif_uniform, optional: true
+    path "*_unifrom.tiff"               , emit: normalized_images_tiff_unifrom, optional: true
+    path "*_uniform.tiff"               , emit: normalized_images_tiff_uniform, optional: true
+    path "*_unifrom.ome.tif"            , emit: normalized_images_ome_tif_unifrom, optional: true
+    path "*_uniform.ome.tif"            , emit: normalized_images_ome_tif_uniform, optional: true
+    path "*_unifrom.ome.tiff"           , emit: normalized_images_ome_tiff_unifrom, optional: true
+    path "*_uniform.ome.tiff"           , emit: normalized_images_ome_tiff_uniform, optional: true
     path "qc/*"                         , emit: qc
     path "versions.yml"                 , emit: versions
 

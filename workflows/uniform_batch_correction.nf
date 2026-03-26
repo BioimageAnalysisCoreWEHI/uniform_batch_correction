@@ -92,7 +92,14 @@ workflow UNIFORM_BATCH_CORRECTION {
         ch_versions = ch_versions.mix(UNIFORMNORMALIZE_PIXEL.out.versions.first())
         ch_qc = ch_qc.mix(UNIFORMNORMALIZE_PIXEL.out.qc)
 
-        ch_normalized_images = UNIFORMNORMALIZE_PIXEL.out.normalized_images.mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome)
+        ch_normalized_images = UNIFORMNORMALIZE_PIXEL.out.normalized_images_tif_unifrom
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_tif_uniform)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_tiff_unifrom)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_tiff_uniform)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tif_unifrom)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tif_uniform)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tiff_unifrom)
+            .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tiff_uniform)
 
         ch_ome_tiff_input
             .map { meta, _ome_tiff -> [meta.id.toString(), meta] }
