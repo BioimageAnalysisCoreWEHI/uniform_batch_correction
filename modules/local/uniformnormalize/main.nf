@@ -3,7 +3,9 @@ process UNIFORMNORMALIZE {
     label 'process_multi'
 
     conda "${moduleDir}/environment.yml"
-    container 'community.wave.seqera.io/library/python_tifffile_scikit-image_scikit-learn_pruned:593e00ba324c12b3'
+    container ((params.uniform_apply_to ?: 'geojson').toString() == 'adata'
+        ? null
+        : 'community.wave.seqera.io/library/python_tifffile_scikit-image_scikit-learn_pruned:593e00ba324c12b3')
 
     input:
     path(geojsons)
