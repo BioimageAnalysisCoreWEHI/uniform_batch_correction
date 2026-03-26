@@ -8,6 +8,7 @@ import csv
 import json
 import math
 import re
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def parse_args():
     parser.add_argument("--min-value", type=float, default=1.0)
     parser.add_argument("--exclude-pattern", default=r"^(kronos_|emb_)")
     parser.add_argument("--output-suffix", default="_uniform")
-    parser.add_argument("--pixel-output-suffix", default="_uniform")
+    parser.add_argument("--pixel-output-suffix", default="_unifrom")
     parser.add_argument("--pixel-sample-size", type=int, default=200000)
     parser.add_argument("--qc-dir", default="qc")
     parser.add_argument("--generate-plots", default="true")
@@ -72,6 +73,9 @@ def compute_fft_shifts(reference_hist, hist_list):
 def output_path_for_image(path, suffix):
     path = Path(path)
     name = path.name
+    if name.endswith(".ome.tif"):
+        base = name[: -len(".ome.tif")]
+        return path.with_name(f"{base}{suffix}.ome.tif")
     if name.endswith(".ome.tiff"):
         base = name[: -len(".ome.tiff")]
         return path.with_name(f"{base}{suffix}.ome.tiff")
@@ -133,13 +137,18 @@ def normalize_geojson(records, num_bins, min_value, exclude_pattern, output_suff
     records_before = load_geojsons([rec["path"] for rec in records])
     keys = collect_measurement_keys(records, exclude_pattern)
 
+    print(f"[geojson] Loaded {len(records)} sample(s)")
+    print(f"[geojson] Found {len(keys)} shared numeric key(s) after exclusion pattern: {exclude_pattern}")
+
     key_diagnostics = {}
     ranked_keys = []
 
     n_samples = len(records)
     if keys and n_samples >= 2:
         scales_by_key = {}
-        for key in keys:
+        for key_idx, key in enumerate(keys, start=1):
+            if key_idx == 1 or key_idx % 25 == 0 or key_idx == len(keys):
+                print(f"[geojson] Processing key {key_idx}/{len(keys)}: {key}")
             sample_values = []
             global_min = float("inf")
             global_max = float("-inf")
@@ -208,6 +217,9 @@ def normalize_geojson(records, num_bins, min_value, exclude_pattern, output_suff
             json.dump(rec["data"], handle)
         outputs.append(str(out_path))
 
+    if ranked_keys:
+        print(f"[geojson] Top changed keys: {', '.join(ranked_keys[:10])}")
+
     return records_before, records, sample_ids, key_diagnostics, ranked_keys, outputs
 
 
@@ -245,9 +257,40 @@ def sample_pixels(channel_arr, sample_size, min_value):
     return np.asarray(valid[idx], dtype=float)
 
 
+def extract_ome_channel_names(path, n_channels):
+    default_names = [f"channel_{idx}" for idx in range(n_channels)]
+
+    try:
+        with tifffile.TiffFile(path) as handle:
+            ome_xml = handle.ome_metadata
+    except Exception:
+        return default_names
+
+    if not ome_xml:
+        return default_names
+
+    try:
+        root = ET.fromstring(ome_xml)
+        channel_nodes = [node for node in root.iter() if node.tag.endswith("Channel")]
+    except Exception:
+        return default_names
+
+    names = []
+    for idx, node in enumerate(channel_nodes[:n_channels]):
+        name = (node.get("Name") or "").strip()
+        names.append(name if name else f"channel_{idx}")
+
+    if len(names) < n_channels:
+        names.extend([f"channel_{idx}" for idx in range(len(names), n_channels)])
+
+    return names
+
+
 def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sample_size):
     sample_ids = [Path(path).stem.replace('.ome', '') for path in paths]
     n_samples = len(paths)
+
+    print(f"[pixel] Loaded {n_samples} image sample(s)")
 
     n_channels = None
     for path in paths:
@@ -258,11 +301,16 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
     if n_channels is None or n_channels <= 0:
         raise ValueError("No valid image channels found for pixel normalization")
 
+    channel_names = extract_ome_channel_names(paths[0], n_channels)
+    print(f"[pixel] Detected {n_channels} channel(s)")
+
     scales_by_channel = {}
     ch_diagnostics = {}
 
     if n_samples >= 2:
         for channel in range(n_channels):
+            if channel == 0 or (channel + 1) % 5 == 0 or channel == n_channels - 1:
+                print(f"[pixel] Processing channel {channel + 1}/{n_channels}: {channel_names[channel]}")
             sample_values = []
             global_min = float("inf")
             global_max = float("-inf")
@@ -332,6 +380,7 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
         out_path = output_path_for_image(path, pixel_output_suffix)
         tifffile.imwrite(out_path, corrected)
         outputs.append(str(out_path))
+        print(f"[pixel] Wrote normalized image {sample_idx + 1}/{n_samples}: {out_path}")
 
     ranked_channels = sorted(
         range(n_channels),
@@ -339,7 +388,12 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
         reverse=True,
     )
 
-    return sample_ids, ch_diagnostics, ranked_channels, outputs
+    if ranked_channels:
+        top_channels = ranked_channels[:10]
+        top_desc = [f"{ch}:{channel_names[ch]}" for ch in top_channels]
+        print(f"[pixel] Top changed channels: {', '.join(top_desc)}")
+
+    return sample_ids, channel_names, ch_diagnostics, ranked_channels, outputs
 
 
 # ------------------------------ QC ------------------------------
@@ -357,15 +411,17 @@ def collect_per_sample_values(records, key):
     return per_sample
 
 
-def write_qc_summary(qc_dir, diagnostics, ranked_items, item_prefix="key"):
+def write_qc_summary(qc_dir, diagnostics, ranked_items, item_prefix="key", item_name_map=None):
     qc_dir.mkdir(parents=True, exist_ok=True)
 
     summary_path = qc_dir / f"uniform_{item_prefix}_summary.csv"
     with summary_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(
+        header = [item_prefix]
+        if item_name_map is not None:
+            header.append(f"{item_prefix}_name")
+        header.extend(
             [
-                item_prefix,
                 "reference_sample",
                 "scale_min",
                 "scale_max",
@@ -377,14 +433,17 @@ def write_qc_summary(qc_dir, diagnostics, ranked_items, item_prefix="key"):
                 "global_max_log",
             ]
         )
+        writer.writerow(header)
 
         for item in ranked_items:
             diag = diagnostics[item]
             scales = np.asarray(diag["scales"], dtype=float)
             shifts = np.asarray(diag["shifts"], dtype=float)
-            writer.writerow(
+            row = [item]
+            if item_name_map is not None:
+                row.append(item_name_map.get(item, ""))
+            row.extend(
                 [
-                    item,
                     diag["reference_sample"],
                     float(np.min(scales)),
                     float(np.max(scales)),
@@ -396,6 +455,7 @@ def write_qc_summary(qc_dir, diagnostics, ranked_items, item_prefix="key"):
                     float(diag["global_max"]),
                 ]
             )
+            writer.writerow(row)
 
     run_summary_path = qc_dir / f"uniform_{item_prefix}_run_summary.json"
     with run_summary_path.open("w", encoding="utf-8") as handle:
@@ -481,7 +541,7 @@ def plot_geojson_qc(qc_dir, records_before, records_after, sample_ids, diagnosti
     return saved
 
 
-def plot_pixel_qc(qc_dir, sample_ids, diagnostics, ranked_channels, max_heatmap_keys):
+def plot_pixel_qc(qc_dir, sample_ids, channel_names, diagnostics, ranked_channels, max_heatmap_keys):
     try:
         import matplotlib.pyplot as plt
     except Exception as error:
@@ -502,11 +562,74 @@ def plot_pixel_qc(qc_dir, sample_ids, diagnostics, ranked_channels, max_heatmap_
         ax.set_xticks(range(len(sample_ids)))
         ax.set_xticklabels(sample_ids, rotation=45, ha="right")
         ax.set_yticks(range(len(channels)))
-        ax.set_yticklabels(channels)
+        ax.set_yticklabels([f"{ch} ({channel_names[ch]})" for ch in channels])
         fig.colorbar(image, ax=ax, label="log(scale)")
         fig.tight_layout()
 
         out_path = qc_dir / "pixel_scale_factor_heatmap.png"
+        fig.savefig(out_path)
+        plt.close(fig)
+        saved.append(str(out_path))
+
+    return saved
+
+
+def plot_pixel_histograms_qc(
+    qc_dir,
+    paths,
+    sample_ids,
+    channel_names,
+    diagnostics,
+    ranked_channels,
+    min_value,
+    sample_size,
+    top_n_channels,
+):
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as error:
+        print(f"Plotting skipped: matplotlib unavailable ({error})")
+        return []
+
+    saved = []
+    selected_channels = ranked_channels[: max(0, top_n_channels)]
+    for channel in selected_channels:
+        diag = diagnostics[channel]
+        global_min = diag["global_min"]
+        global_max = diag["global_max"]
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=140)
+        for sample_idx, (sid, path) in enumerate(zip(sample_ids, paths)):
+            image = load_image_as_cyx(path)
+            sampled = sample_pixels(image[channel], sample_size, min_value=min_value)
+
+            before_vals = log_transform(sampled, min_value=min_value)
+            before_vals = before_vals[np.isfinite(before_vals)]
+
+            scale = float(diag["scales"][sample_idx])
+            after_vals = log_transform(sampled.astype(np.float64) * scale, min_value=min_value)
+            after_vals = after_vals[np.isfinite(after_vals)]
+
+            if before_vals.size:
+                axes[0].hist(before_vals, bins=80, range=(global_min, global_max), histtype="step", linewidth=1.2, label=sid)
+            if after_vals.size:
+                axes[1].hist(after_vals, bins=80, range=(global_min, global_max), histtype="step", linewidth=1.2, label=sid)
+
+        channel_label = f"{channel} ({channel_names[channel]})"
+        axes[0].set_title(f"Before normalization\nchannel {channel_label}")
+        axes[1].set_title(f"After normalization\nchannel {channel_label}")
+        axes[0].set_xlabel("log(value)")
+        axes[1].set_xlabel("log(value)")
+        axes[0].set_ylabel("Count")
+        axes[1].set_ylabel("Count")
+
+        handles, labels = axes[1].get_legend_handles_labels()
+        if handles:
+            fig.legend(handles, labels, loc="center right", frameon=False)
+        fig.tight_layout(rect=[0, 0, 0.88, 1])
+
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", channel_names[channel])
+        out_path = qc_dir / f"pixel_hist_before_after_channel_{channel}_{safe_name}.png"
         fig.savefig(out_path)
         plt.close(fig)
         saved.append(str(out_path))
@@ -527,6 +650,7 @@ def main():
     if mode in {"geojson", "both"}:
         geojson_inputs = [path for path in args.inputs if path.lower().endswith(".geojson")]
         if geojson_inputs:
+            print(f"[geojson] Starting normalization for {len(geojson_inputs)} input file(s)")
             records = load_geojsons(geojson_inputs)
             records_before, records_after, sample_ids, diagnostics, ranked_keys, geo_outputs = normalize_geojson(
                 records,
@@ -554,6 +678,8 @@ def main():
                     args.qc_max_heatmap_keys,
                 ):
                     print(f"Wrote {plot_path}")
+        else:
+            print("[geojson] No geojson inputs found for selected mode")
 
     if mode in {"ome_tiff", "both"}:
         tiff_inputs = [
@@ -562,7 +688,8 @@ def main():
             if path.lower().endswith(".tiff") or path.lower().endswith(".tif")
         ]
         if tiff_inputs:
-            sample_ids, diagnostics, ranked_channels, tiff_outputs = normalize_pixel(
+            print(f"[pixel] Starting normalization for {len(tiff_inputs)} input image(s)")
+            sample_ids, channel_names, diagnostics, ranked_channels, tiff_outputs = normalize_pixel(
                 tiff_inputs,
                 num_bins=args.num_bins,
                 min_value=args.min_value,
@@ -571,7 +698,14 @@ def main():
             )
             outputs.extend(tiff_outputs)
 
-            summary_path, run_summary_path = write_qc_summary(qc_dir, diagnostics, ranked_channels, item_prefix="channel")
+            channel_name_map = {idx: name for idx, name in enumerate(channel_names)}
+            summary_path, run_summary_path = write_qc_summary(
+                qc_dir,
+                diagnostics,
+                ranked_channels,
+                item_prefix="channel",
+                item_name_map=channel_name_map,
+            )
             print(f"Wrote {summary_path}")
             print(f"Wrote {run_summary_path}")
 
@@ -579,11 +713,27 @@ def main():
                 for plot_path in plot_pixel_qc(
                     qc_dir,
                     sample_ids,
+                    channel_names,
                     diagnostics,
                     ranked_channels,
                     args.qc_max_heatmap_keys,
                 ):
                     print(f"Wrote {plot_path}")
+
+                for plot_path in plot_pixel_histograms_qc(
+                    qc_dir,
+                    tiff_inputs,
+                    sample_ids,
+                    channel_names,
+                    diagnostics,
+                    ranked_channels,
+                    args.min_value,
+                    args.pixel_sample_size,
+                    args.qc_top_n_keys,
+                ):
+                    print(f"Wrote {plot_path}")
+        else:
+            print("[pixel] No TIFF inputs found for selected mode")
 
     if not outputs:
         raise SystemExit("No compatible inputs found for selected mode.")

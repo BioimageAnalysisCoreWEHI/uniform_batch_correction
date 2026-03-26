@@ -51,7 +51,7 @@ workflow UNIFORM_BATCH_CORRECTION {
     }
 
     if (params.run_uniform && (mode == 'ome_tiff' || mode == 'both')) {
-        def pixelSuffix = (params.uniform_pixel_output_suffix ?: '_uniform') as String
+        def pixelSuffix = (params.uniform_pixel_output_suffix ?: '_unifrom') as String
 
         UNIFORMNORMALIZE_PIXEL(
             ch_ome_tiff_input.map { meta, ome_tiff -> ome_tiff }.collect()
@@ -65,10 +65,20 @@ workflow UNIFORM_BATCH_CORRECTION {
             .map { meta, ome_tiff -> [meta.id.toString(), meta] }
             .join(
                 ch_normalized_images.map { image ->
-                    def base = image.getBaseName()
-                    def sample = base.endsWith(pixelSuffix)
-                        ? base.substring(0, base.length() - pixelSuffix.length())
-                        : base
+                    def name = image.getName()
+                    def sample = name
+                    def endings = [
+                        "${pixelSuffix}.ome.tiff",
+                        "${pixelSuffix}.ome.tif",
+                        "${pixelSuffix}.tiff",
+                        "${pixelSuffix}.tif"
+                    ]
+
+                    def matchedEnding = endings.find { ending -> sample.endsWith(ending) }
+                    if (matchedEnding) {
+                        sample = sample.substring(0, sample.length() - matchedEnding.length())
+                    }
+
                     [sample, image]
                 },
                 by: 0
