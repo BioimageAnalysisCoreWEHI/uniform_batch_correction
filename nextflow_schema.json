@@ -13,7 +13,7 @@
       "schema": "assets/schema_input.json",
       "mimetype": "text/csv",
       "pattern": "^\\S+\\.(csv|y(a)?ml)$",
-      "description": "Path to input samplesheet (CSV or YAML). Must contain at least 'sample' and 'geojson' columns/fields. Each row defines one sample ID and one input GeoJSON file to include in cohort-level normalization."
+      "description": "Path to input samplesheet (CSV or YAML). Must contain at least 'sample' plus one of 'geojson', 'ome_tiff', or 'adata' columns/fields."
     },
     "outdir": {
       "type": "string",
@@ -28,8 +28,8 @@
     "uniform_apply_to": {
       "type": "string",
       "default": "geojson",
-      "enum": ["geojson", "ome_tiff", "both"],
-      "description": "Select normalization target: geojson (cellmeasurement numeric fields), ome_tiff (pixel-level per-channel scaling), or both."
+      "enum": ["geojson", "ome_tiff", "adata"],
+      "description": "Select normalization target for this run: geojson (cellmeasurement numeric fields), ome_tiff (pixel-level per-channel scaling), or adata (feature-level AnnData matrix scaling)."
     },
     "uniform_num_bins": {
       "type": "integer",
@@ -56,8 +56,8 @@
     },
     "uniform_pixel_output_suffix": {
       "type": "string",
-      "default": "_uniform",
-      "description": "Suffix appended to normalized OME-TIFF/TIFF filenames (e.g. sample.ome.tiff -> sample_uniform.ome.tiff)."
+      "default": "_unifrom",
+      "description": "Suffix appended to normalized OME-TIFF/TIFF filenames (e.g. sample.ome.tiff -> sample_unifrom.ome.tiff)."
     },
     "uniform_pixel_sample_size": {
       "type": "integer",

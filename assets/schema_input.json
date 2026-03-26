@@ -9,7 +9,8 @@
     "required": ["sample"],
     "anyOf": [
       { "required": ["geojson"] },
-      { "required": ["ome_tiff"] }
+      { "required": ["ome_tiff"] },
+      { "required": ["adata"] }
     ],
     "properties": {
       "sample": {
@@ -25,6 +26,11 @@
         "type": "string",
         "format": "file-path",
         "description": "Path to input OME-TIFF/TIFF for pixel-level normalization"
+      },
+      "adata": {
+        "type": "string",
+        "format": "file-path",
+        "description": "Path to input AnnData (.h5ad) for feature-level normalization"
       }
     }
   }

@@ -10,6 +10,7 @@ process UNIFORMNORMALIZE {
 
     output:
     path "*_uniform.geojson"            , emit: normalized_annotations, optional: true
+    path "*_uniform.h5ad"               , emit: normalized_adata, optional: true
     path "*_unifrom.tif"                , emit: normalized_images, optional: true
     path "*_uniform.tif"                , emit: normalized_images, optional: true
     path "*_unifrom.tiff"               , emit: normalized_images, optional: true

@@ -9,6 +9,7 @@ Provide a CSV/YAML samplesheet with:
 - `sample`: sample ID
 - `geojson`: path to input cellmeasurement GeoJSON (for feature-level mode)
 - `ome_tiff`: path to input OME-TIFF/TIFF image (for pixel-level mode)
+- `adata`: path to input AnnData `.h5ad` file (for feature-level matrix mode)
 
 Example CSV is provided in [assets/samplesheet.csv](assets/samplesheet.csv).
 
@@ -26,16 +27,17 @@ The `large` profile targets SLURM large-memory nodes (default queue `regular`) a
 ## Key parameters
 
 - `--run_uniform` (default: `true`)
-- `--uniform_apply_to` (default: `geojson`; options: `geojson`, `ome_tiff`, `both`)
+- `--uniform_apply_to` (default: `geojson`; options: `geojson`, `ome_tiff`, `adata`)
 - `--uniform_num_bins` (default: `1024`)
 - `--uniform_min_value` (default: `1.0`)
 - `--uniform_exclude_pattern` (default: `^(kronos_|emb_)`)
 - `--uniform_output_suffix` (default: `_uniform`)
-- `--uniform_pixel_output_suffix` (default: `_uniform`)
+- `--uniform_pixel_output_suffix` (default: `_unifrom`)
 - `--uniform_pixel_sample_size` (default: `200000`)
 - `--uniform_generate_plots` (default: `true`)
 - `--uniform_qc_top_n_keys` (default: `12`)
 - `--uniform_qc_max_heatmap_keys` (default: `40`)
 
 Normalized GeoJSON files are published to `results/uniformnormalize/`.
+Normalized AnnData files are published to `results/uniformnormalize/`.
 QC files are published to `results/uniformnormalize/qc/`.

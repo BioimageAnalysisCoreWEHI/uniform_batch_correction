@@ -9,7 +9,7 @@ workflow {
         error "Please provide --input <samplesheet.csv>"
     }
 
-    def ch_samplesheet = Channel
+    def ch_samplesheet = channel
         .fromPath(params.input, checkIfExists: true)
         .splitCsv(header: true)
         .map { row ->
@@ -19,19 +19,23 @@ workflow {
 
             def geojson = row.geojson ? file(row.geojson.toString()) : null
             def omeTiff = row.ome_tiff ? file(row.ome_tiff.toString()) : null
+            def adata = row.adata ? file(row.adata.toString()) : null
 
-            if ((mode == 'geojson' || mode == 'both') && !geojson) {
+            if (mode == 'geojson' && !geojson) {
                 error "Mode '${mode}' requires geojson column/path for sample ${row.sample}"
             }
-            if ((mode == 'ome_tiff' || mode == 'both') && !omeTiff) {
+            if (mode == 'ome_tiff' && !omeTiff) {
                 error "Mode '${mode}' requires ome_tiff column/path for sample ${row.sample}"
             }
-
-            if (!geojson && !omeTiff) {
-                error "Each samplesheet row must include geojson and/or ome_tiff"
+            if (mode == 'adata' && !adata) {
+                error "Mode '${mode}' requires adata column/path for sample ${row.sample}"
             }
 
-            [ [id: row.sample.toString()], geojson, omeTiff ]
+            if (!geojson && !omeTiff && !adata) {
+                error "Each samplesheet row must include geojson and/or ome_tiff and/or adata"
+            }
+
+            [ [id: row.sample.toString()], geojson, omeTiff, adata ]
         }
 
     UNIFORM_BATCH_CORRECTION(

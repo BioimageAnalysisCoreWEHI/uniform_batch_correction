@@ -12,15 +12,17 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
 import tifffile
+from scipy import sparse
 from scipy.signal import correlate
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Normalize GeoJSON measurements and/or OME-TIFF intensities")
     parser.add_argument("--inputs", nargs="+", required=True, help="Input files")
-    parser.add_argument("--mode", choices=["geojson", "ome_tiff", "both"], default="geojson")
+    parser.add_argument("--mode", choices=["geojson", "ome_tiff", "adata"], default="geojson")
     parser.add_argument("--num-bins", type=int, default=1024)
     parser.add_argument("--min-value", type=float, default=1.0)
     parser.add_argument("--exclude-pattern", default=r"^(kronos_|emb_)")
@@ -85,6 +87,15 @@ def output_path_for_image(path, suffix):
     if name.endswith(".tif"):
         base = name[: -len(".tif")]
         return path.with_name(f"{base}{suffix}.tif")
+    return path.with_name(f"{path.stem}{suffix}{path.suffix}")
+
+
+def output_path_for_adata(path, suffix):
+    path = Path(path)
+    name = path.name
+    if name.endswith(".h5ad"):
+        base = name[: -len(".h5ad")]
+        return path.with_name(f"{base}{suffix}.h5ad")
     return path.with_name(f"{path.stem}{suffix}{path.suffix}")
 
 
@@ -396,6 +407,137 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
     return sample_ids, channel_names, ch_diagnostics, ranked_channels, outputs
 
 
+# ------------------------------ ADATA MODE ------------------------------
+
+def get_adata_feature_values(adata_obj, feature_idx, min_value):
+    matrix = adata_obj.X
+    if sparse.issparse(matrix):
+        col = matrix.getcol(feature_idx)
+        values = np.asarray(col.data, dtype=float)
+    else:
+        values = np.asarray(matrix[:, feature_idx], dtype=float).ravel()
+
+    valid = values[values >= min_value]
+    if valid.size == 0:
+        return np.array([0.0], dtype=float)
+    return valid
+
+
+def infer_adata_feature_names(adata_obj):
+    if "marker_name" in adata_obj.var.columns:
+        return [str(v) for v in adata_obj.var["marker_name"].tolist()]
+    if "feature_name" in adata_obj.var.columns:
+        return [str(v) for v in adata_obj.var["feature_name"].tolist()]
+    return [str(v) for v in adata_obj.var_names.tolist()]
+
+
+def normalize_adata(paths, num_bins, min_value, output_suffix):
+    sample_ids = [Path(path).stem for path in paths]
+    n_samples = len(paths)
+    print(f"[adata] Loaded {n_samples} AnnData sample(s)")
+
+    adatas = [ad.read_h5ad(path) for path in paths]
+    if not adatas:
+        raise ValueError("No AnnData inputs found")
+
+    n_features = min(int(adata_obj.n_vars) for adata_obj in adatas)
+    if n_features <= 0:
+        raise ValueError("No features found in AnnData inputs")
+
+    feature_names = infer_adata_feature_names(adatas[0])[:n_features]
+    print(f"[adata] Detected {n_features} feature(s)")
+
+    scales_by_feature = {}
+    diagnostics = {}
+
+    if n_samples >= 2:
+        for feature_idx in range(n_features):
+            if feature_idx == 0 or (feature_idx + 1) % 50 == 0 or feature_idx == n_features - 1:
+                print(f"[adata] Processing feature {feature_idx + 1}/{n_features}: {feature_names[feature_idx]}")
+
+            sample_values = []
+            global_min = float("inf")
+            global_max = float("-inf")
+
+            for adata_obj in adatas:
+                values = get_adata_feature_values(adata_obj, feature_idx, min_value=min_value)
+                log_vals = log_transform(values, min_value=min_value)
+                log_vals = log_vals[np.isfinite(log_vals)]
+                if log_vals.size == 0:
+                    log_vals = np.array([0.0], dtype=float)
+
+                sample_values.append(log_vals)
+                global_min = min(global_min, float(np.min(log_vals)))
+                global_max = max(global_max, float(np.max(log_vals)))
+
+            if not np.isfinite(global_min) or not np.isfinite(global_max) or global_max <= global_min:
+                scales_by_feature[feature_idx] = [1.0] * n_samples
+                diagnostics[feature_idx] = {
+                    "reference_sample": sample_ids[0],
+                    "scales": [1.0] * n_samples,
+                    "shifts": [0] * n_samples,
+                    "global_min": 0.0,
+                    "global_max": 0.0,
+                }
+                continue
+
+            hist_list = []
+            for log_vals in sample_values:
+                counts, _ = np.histogram(log_vals, bins=num_bins, range=(global_min, global_max))
+                hist_list.append(counts.astype(float))
+
+            hist_matrix = np.stack(hist_list, axis=0)
+            ref_idx = choose_reference(hist_matrix)
+            shifts = compute_fft_shifts(hist_matrix[ref_idx], hist_list)
+
+            increment = (global_max - global_min) / max(1, num_bins - 1)
+            scales = [math.exp(-shift * increment) for shift in shifts]
+
+            scales_by_feature[feature_idx] = scales
+            diagnostics[feature_idx] = {
+                "reference_sample": sample_ids[ref_idx],
+                "scales": scales,
+                "shifts": shifts,
+                "global_min": global_min,
+                "global_max": global_max,
+            }
+    else:
+        for feature_idx in range(n_features):
+            scales_by_feature[feature_idx] = [1.0]
+            diagnostics[feature_idx] = {
+                "reference_sample": sample_ids[0],
+                "scales": [1.0],
+                "shifts": [0],
+                "global_min": 0.0,
+                "global_max": 0.0,
+            }
+
+    for sample_idx, adata_obj in enumerate(adatas):
+        scale_vector = np.asarray([scales_by_feature[idx][sample_idx] for idx in range(n_features)], dtype=float)
+        matrix = adata_obj.X
+
+        if sparse.issparse(matrix):
+            adata_obj.X = matrix @ sparse.diags(scale_vector)
+        else:
+            adata_obj.X = np.asarray(matrix, dtype=float) * scale_vector
+
+    outputs = []
+    for path, adata_obj in zip(paths, adatas):
+        out_path = output_path_for_adata(path, output_suffix)
+        adata_obj.write_h5ad(out_path)
+        outputs.append(str(out_path))
+        print(f"[adata] Wrote normalized AnnData: {out_path}")
+
+    ranked_features = sorted(
+        range(n_features),
+        key=lambda idx: float(np.std(np.log(np.asarray(scales_by_feature[idx], dtype=float) + 1e-12))),
+        reverse=True,
+    )
+    feature_name_map = {idx: feature_names[idx] for idx in range(n_features)}
+
+    return sample_ids, feature_name_map, diagnostics, ranked_features, outputs
+
+
 # ------------------------------ QC ------------------------------
 
 def collect_per_sample_values(records, key):
@@ -637,6 +779,94 @@ def plot_pixel_histograms_qc(
     return saved
 
 
+def plot_adata_qc(
+    qc_dir,
+    paths,
+    sample_ids,
+    feature_name_map,
+    diagnostics,
+    ranked_features,
+    min_value,
+    top_n_features,
+    max_heatmap_features,
+):
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as error:
+        print(f"Plotting skipped: matplotlib unavailable ({error})")
+        return []
+
+    adatas = [ad.read_h5ad(path) for path in paths]
+    saved = []
+
+    selected_features = ranked_features[: max(0, top_n_features)]
+    for feature_idx in selected_features:
+        diag = diagnostics[feature_idx]
+        global_min = diag["global_min"]
+        global_max = diag["global_max"]
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=140)
+        for sample_idx, (sid, adata_obj) in enumerate(zip(sample_ids, adatas)):
+            values = get_adata_feature_values(adata_obj, feature_idx, min_value=min_value)
+            scale = float(diag["scales"][sample_idx])
+
+            before_vals = log_transform(values, min_value=min_value)
+            before_vals = before_vals[np.isfinite(before_vals)]
+
+            after_vals = log_transform(values.astype(np.float64) * scale, min_value=min_value)
+            after_vals = after_vals[np.isfinite(after_vals)]
+
+            if before_vals.size:
+                axes[0].hist(before_vals, bins=80, range=(global_min, global_max), histtype="step", linewidth=1.2, label=sid)
+            if after_vals.size:
+                axes[1].hist(after_vals, bins=80, range=(global_min, global_max), histtype="step", linewidth=1.2, label=sid)
+
+        feature_name = feature_name_map.get(feature_idx, str(feature_idx))
+        axes[0].set_title(f"Before normalization\nfeature {feature_name}")
+        axes[1].set_title(f"After normalization\nfeature {feature_name}")
+        axes[0].set_xlabel("log(value)")
+        axes[1].set_xlabel("log(value)")
+        axes[0].set_ylabel("Count")
+        axes[1].set_ylabel("Count")
+
+        handles, labels = axes[1].get_legend_handles_labels()
+        if handles:
+            fig.legend(handles, labels, loc="center right", frameon=False)
+        fig.tight_layout(rect=[0, 0, 0.88, 1])
+
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", feature_name)
+        out_path = qc_dir / f"adata_hist_before_after_feature_{feature_idx}_{safe_name}.png"
+        fig.savefig(out_path)
+        plt.close(fig)
+        saved.append(str(out_path))
+
+    if ranked_features:
+        selected = ranked_features[: max(1, max_heatmap_features)]
+        scale_matrix = np.array([diagnostics[idx]["scales"] for idx in selected], dtype=float)
+        log_scale = np.log(scale_matrix + 1e-12)
+
+        ylabels = [feature_name_map.get(idx, str(idx)) for idx in selected]
+
+        fig, ax = plt.subplots(figsize=(max(7, len(sample_ids) * 1.2), max(6, len(selected) * 0.25)), dpi=140)
+        image = ax.imshow(log_scale, aspect="auto", cmap="coolwarm")
+        ax.set_title("Log scale factors by AnnData feature and sample")
+        ax.set_xlabel("Sample")
+        ax.set_ylabel("Feature")
+        ax.set_xticks(range(len(sample_ids)))
+        ax.set_xticklabels(sample_ids, rotation=45, ha="right")
+        ax.set_yticks(range(len(selected)))
+        ax.set_yticklabels(ylabels)
+        fig.colorbar(image, ax=ax, label="log(scale)")
+        fig.tight_layout()
+
+        out_path = qc_dir / "adata_scale_factor_heatmap.png"
+        fig.savefig(out_path)
+        plt.close(fig)
+        saved.append(str(out_path))
+
+    return saved
+
+
 def main():
     args = parse_args()
     mode = args.mode
@@ -647,7 +877,7 @@ def main():
 
     outputs = []
 
-    if mode in {"geojson", "both"}:
+    if mode == "geojson":
         geojson_inputs = [path for path in args.inputs if path.lower().endswith(".geojson")]
         if geojson_inputs:
             print(f"[geojson] Starting normalization for {len(geojson_inputs)} input file(s)")
@@ -681,7 +911,7 @@ def main():
         else:
             print("[geojson] No geojson inputs found for selected mode")
 
-    if mode in {"ome_tiff", "both"}:
+    if mode == "ome_tiff":
         tiff_inputs = [
             path
             for path in args.inputs
@@ -734,6 +964,44 @@ def main():
                     print(f"Wrote {plot_path}")
         else:
             print("[pixel] No TIFF inputs found for selected mode")
+
+    if mode == "adata":
+        adata_inputs = [path for path in args.inputs if path.lower().endswith(".h5ad")]
+        if adata_inputs:
+            print(f"[adata] Starting normalization for {len(adata_inputs)} input file(s)")
+            sample_ids, feature_name_map, diagnostics, ranked_features, adata_outputs = normalize_adata(
+                adata_inputs,
+                num_bins=args.num_bins,
+                min_value=args.min_value,
+                output_suffix=args.output_suffix,
+            )
+            outputs.extend(adata_outputs)
+
+            summary_path, run_summary_path = write_qc_summary(
+                qc_dir,
+                diagnostics,
+                ranked_features,
+                item_prefix="feature",
+                item_name_map=feature_name_map,
+            )
+            print(f"Wrote {summary_path}")
+            print(f"Wrote {run_summary_path}")
+
+            if generate_plots:
+                for plot_path in plot_adata_qc(
+                    qc_dir,
+                    adata_inputs,
+                    sample_ids,
+                    feature_name_map,
+                    diagnostics,
+                    ranked_features,
+                    args.min_value,
+                    args.qc_top_n_keys,
+                    args.qc_max_heatmap_keys,
+                ):
+                    print(f"Wrote {plot_path}")
+        else:
+            print("[adata] No h5ad inputs found for selected mode")
 
     if not outputs:
         raise SystemExit("No compatible inputs found for selected mode.")
