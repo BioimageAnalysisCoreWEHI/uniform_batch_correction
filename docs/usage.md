@@ -20,6 +20,7 @@ Optional tuning:
 --uniform_pixel_sample_size 200000 \\
 --uniform_adata_group_by image \\
 --uniform_adata_sample_size 200000 \\
+--uniform_adata_target cell_mean \\
 --uniform_adata_filter_column statistic \\
 --uniform_adata_filter_regex '(?i)^mean$|intensity' \\
 --uniform_generate_plots true \\
@@ -46,7 +47,13 @@ nextflow run . \\
   --outdir /path/to/results \\
   --uniform_apply_to adata \\
   --uniform_adata_group_by image \\
-  --uniform_adata_filter_column statistic \\
-  --uniform_adata_filter_regex '(?i)^mean$|intensity'
+  --uniform_adata_target cell_mean
+```
+
+Optional advanced filtering (applies on top of target preset):
+
+```bash
+--uniform_adata_filter_column statistic \\
+--uniform_adata_filter_regex '(?i)^mean$|intensity'
 ```
 

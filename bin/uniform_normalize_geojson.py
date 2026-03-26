@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument("--pixel-sample-size", type=int, default=200000)
     parser.add_argument("--adata-group-by", default="image")
     parser.add_argument("--adata-sample-size", type=int, default=200000)
+    parser.add_argument("--adata-target", choices=["all", "cell_mean"], default="all")
     parser.add_argument("--adata-filter-column", default="")
     parser.add_argument("--adata-filter-regex", default="")
     parser.add_argument("--qc-dir", default="qc")
@@ -456,9 +457,14 @@ def infer_adata_feature_names(adata_obj):
     return [str(v) for v in adata_obj.var_names.tolist()]
 
 
-def select_adata_feature_indices(adata_obj, feature_names, filter_column, filter_regex):
+def select_adata_feature_indices(adata_obj, feature_names, adata_target, filter_column, filter_regex):
+    if adata_target == "cell_mean":
+        base_indices = [idx for idx, name in enumerate(feature_names) if re.search(r"(?i)_cell_mean$", str(name))]
+    else:
+        base_indices = list(range(len(feature_names)))
+
     if not filter_regex:
-        return list(range(len(feature_names)))
+        return base_indices
 
     regex = re.compile(filter_regex)
 
@@ -472,7 +478,7 @@ def select_adata_feature_indices(adata_obj, feature_names, filter_column, filter
     else:
         values = feature_names
 
-    selected = [idx for idx, text in enumerate(values) if regex.search(text)]
+    selected = [idx for idx in base_indices if regex.search(values[idx])]
     return selected
 
 
@@ -512,6 +518,7 @@ def normalize_adata(
     output_suffix,
     group_by,
     adata_sample_size,
+    adata_target,
     adata_filter_column,
     adata_filter_regex,
 ):
@@ -540,9 +547,13 @@ def normalize_adata(
     selected_features = select_adata_feature_indices(
         adatas[0],
         feature_names,
+        adata_target=adata_target,
         filter_column=adata_filter_column,
         filter_regex=adata_filter_regex,
     )
+
+    if adata_target == "cell_mean":
+        print(f"[adata] Target preset 'cell_mean' selected: {len(selected_features)}/{n_features} features")
 
     if adata_filter_regex:
         source_desc = adata_filter_column if adata_filter_column else "feature names"
@@ -550,7 +561,7 @@ def normalize_adata(
             f"[adata] Filtered features using regex '{adata_filter_regex}' on {source_desc}: "
             f"{len(selected_features)}/{n_features} selected"
         )
-    else:
+    elif adata_target == "all":
         print(f"[adata] No adata feature filter set; normalizing all {n_features} features")
 
     if len(selected_features) == 0:
@@ -1124,6 +1135,7 @@ def main():
                 output_suffix=args.output_suffix,
                 group_by=args.adata_group_by,
                 adata_sample_size=args.adata_sample_size,
+                adata_target=args.adata_target,
                 adata_filter_column=args.adata_filter_column,
                 adata_filter_regex=args.adata_filter_regex,
             )

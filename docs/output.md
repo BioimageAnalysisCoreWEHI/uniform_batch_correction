@@ -10,6 +10,7 @@
   - Input AnnData files with per-feature cohort-level scaling applied to `X`.
   - Samples are defined by `obs` groups (default `image`), so all cells from one image are normalized together.
   - Feature names are inferred from `var` metadata (`feature_type|marker|compartment|statistic`) when available.
+  - Use `uniform_adata_target=cell_mean` for a simple marker-mean-only selection (`*_Cell_Mean`).
   - If `uniform_adata_filter_regex` is set, only matching features are normalized; all other features in `X` remain unchanged.
 
 - `uniformnormalize/*_uniform.ome.tiff` and/or `uniformnormalize/*_uniform.tiff`

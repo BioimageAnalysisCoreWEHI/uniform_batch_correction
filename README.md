@@ -39,6 +39,7 @@ The `large` profile targets SLURM large-memory nodes (default queue `regular`) a
 - `--uniform_pixel_sample_size` (default: `200000`)
 - `--uniform_adata_group_by` (default: `image`)
 - `--uniform_adata_sample_size` (default: `200000`)
+- `--uniform_adata_target` (default: `all`; use `cell_mean` to target only `*_Cell_Mean` features)
 - `--uniform_adata_filter_column` (default: empty; e.g. `statistic`)
 - `--uniform_adata_filter_regex` (default: empty; only matching features are normalized)
 - `--uniform_generate_plots` (default: `true`)

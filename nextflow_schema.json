@@ -78,6 +78,12 @@
       "maximum": 5000000,
       "description": "Maximum sampled observations per AnnData group per feature used for histogram shift estimation in adata mode."
     },
+    "uniform_adata_target": {
+      "type": "string",
+      "default": "all",
+      "enum": ["all", "cell_mean"],
+      "description": "Simple AnnData feature target preset. Use 'cell_mean' to normalize only features ending with _Cell_Mean, or 'all' for all features."
+    },
     "uniform_adata_filter_column": {
       "type": "string",
       "default": "",
