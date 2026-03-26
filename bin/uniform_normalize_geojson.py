@@ -12,11 +12,21 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
-import anndata as ad
 import numpy as np
 import tifffile
 from scipy import sparse
 from scipy.signal import correlate
+
+
+def get_anndata_module():
+    try:
+        import anndata as ad
+    except ModuleNotFoundError as error:
+        raise ModuleNotFoundError(
+            "AnnData mode requires the 'anndata' package. "
+            "Install it in the runtime environment or run non-adata modes without adata dependencies."
+        ) from error
+    return ad
 
 
 def parse_args():
@@ -522,6 +532,7 @@ def normalize_adata(
     adata_filter_column,
     adata_filter_regex,
 ):
+    ad = get_anndata_module()
     n_files = len(paths)
     print(f"[adata] Loaded {n_files} AnnData file(s)")
 
@@ -939,6 +950,7 @@ def plot_adata_qc(
     top_n_features,
     max_heatmap_features,
 ):
+    ad = get_anndata_module()
     try:
         import matplotlib.pyplot as plt
     except Exception as error:
