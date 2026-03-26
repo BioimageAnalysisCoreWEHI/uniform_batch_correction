@@ -469,7 +469,27 @@ def infer_adata_feature_names(adata_obj):
 
 def select_adata_feature_indices(adata_obj, feature_names, adata_target, filter_column, filter_regex):
     if adata_target == "cell_mean":
-        base_indices = [idx for idx, name in enumerate(feature_names) if re.search(r"(?i)_cell_mean$", str(name))]
+        base_indices = []
+
+        if "statistic" in adata_obj.var.columns:
+            stat_values = [str(v).strip().lower() for v in adata_obj.var["statistic"].tolist()]
+
+            if "compartment" in adata_obj.var.columns:
+                compartment_values = [str(v).strip().lower() for v in adata_obj.var["compartment"].tolist()]
+                base_indices = [
+                    idx
+                    for idx, (stat, compartment) in enumerate(zip(stat_values, compartment_values))
+                    if stat == "mean" and compartment == "cell"
+                ]
+            else:
+                base_indices = [idx for idx, stat in enumerate(stat_values) if stat == "mean"]
+
+        if not base_indices:
+            var_names = [str(v) for v in adata_obj.var_names.tolist()]
+            base_indices = [idx for idx, name in enumerate(var_names) if re.search(r"(?i)_cell_mean$", name)]
+
+        if not base_indices:
+            base_indices = [idx for idx, name in enumerate(feature_names) if re.search(r"(?i)_cell_mean$", str(name))]
     else:
         base_indices = list(range(len(feature_names)))
 
