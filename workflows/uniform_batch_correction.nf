@@ -35,13 +35,13 @@ workflow UNIFORM_BATCH_CORRECTION {
         UNIFORMNORMALIZE_GEOJSON(
             ch_geojson_input.map { _meta, geojson -> geojson }.collect()
         )
-        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_GEOJSON.out.versions.first())
+        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_GEOJSON.out.versions)
         ch_qc = UNIFORMNORMALIZE_GEOJSON.out.qc
 
         ch_geojson_input
             .map { meta, _geojson -> [meta.id.toString(), meta] }
             .join(
-                UNIFORMNORMALIZE_GEOJSON.out.normalized_annotations.map { geojson ->
+                UNIFORMNORMALIZE_GEOJSON.out.normalized_annotations.flatten().map { geojson ->
                     def base = geojson.getBaseName()
                     def sample = base.endsWith(uniformSuffix)
                         ? base.substring(0, base.length() - uniformSuffix.length())
@@ -62,13 +62,13 @@ workflow UNIFORM_BATCH_CORRECTION {
         UNIFORMNORMALIZE_ADATA(
             ch_adata_input.map { _meta, adata -> adata }.collect()
         )
-        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_ADATA.out.versions.first())
+        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_ADATA.out.versions)
         ch_qc = ch_qc.mix(UNIFORMNORMALIZE_ADATA.out.qc)
 
         ch_adata_input
             .map { meta, _adata -> [meta.id.toString(), meta] }
             .join(
-                UNIFORMNORMALIZE_ADATA.out.normalized_adata.map { adata ->
+                UNIFORMNORMALIZE_ADATA.out.normalized_adata.flatten().map { adata ->
                     def base = adata.getBaseName()
                     def sample = base.endsWith(uniformSuffix)
                         ? base.substring(0, base.length() - uniformSuffix.length())
@@ -89,7 +89,7 @@ workflow UNIFORM_BATCH_CORRECTION {
         UNIFORMNORMALIZE_PIXEL(
             ch_ome_tiff_input.map { _meta, ome_tiff -> ome_tiff }.collect()
         )
-        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_PIXEL.out.versions.first())
+        ch_versions = ch_versions.mix(UNIFORMNORMALIZE_PIXEL.out.versions)
         ch_qc = ch_qc.mix(UNIFORMNORMALIZE_PIXEL.out.qc)
 
         ch_normalized_images = UNIFORMNORMALIZE_PIXEL.out.normalized_images_tif_unifrom
@@ -100,6 +100,7 @@ workflow UNIFORM_BATCH_CORRECTION {
             .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tif_uniform)
             .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tiff_unifrom)
             .mix(UNIFORMNORMALIZE_PIXEL.out.normalized_images_ome_tiff_uniform)
+            .flatten()
 
         ch_ome_tiff_input
             .map { meta, _ome_tiff -> [meta.id.toString(), meta] }
