@@ -37,6 +37,10 @@ The `large` profile targets SLURM large-memory nodes (default queue `regular`) a
 - `--uniform_output_suffix` (default: `_uniform`)
 - `--uniform_pixel_output_suffix` (default: `_unifrom`)
 - `--uniform_pixel_sample_size` (default: `200000`)
+- `--uniform_pixel_group_by` (default: `image`; options: `image`, `batch`)
+- `--uniform_pixel_batch_map` (default: empty; CSV/TSV with sample->batch mapping)
+- `--uniform_pixel_batch_sample_column` (default: `sample`)
+- `--uniform_pixel_batch_column` (default: `batch`)
 - `--uniform_adata_group_by` (default: `image`)
 - `--uniform_adata_sample_size` (default: `200000`)
 - `--uniform_adata_target` (default: `all`; use `cell_mean` to target only `*_Cell_Mean` features)
@@ -49,3 +53,31 @@ The `large` profile targets SLURM large-memory nodes (default queue `regular`) a
 Normalized GeoJSON files are published to `results/uniformnormalize/`.
 Normalized AnnData files are published to `results/uniformnormalize/`.
 QC files are published to `results/uniformnormalize/qc/`.
+
+### Pixel normalization by batch
+
+To normalize OME-TIFF/TIFF images by batch instead of per image, provide a sample-to-batch table and set `uniform_pixel_group_by=batch`.
+
+Example mapping file (CSV/TSV):
+
+```text
+sample,batch
+SOL2_0003_A12,Pilot
+SOL2_0004_1N,Pilot
+SOL2_0007_14MP,3
+SOL2_0008,1
+```
+
+Run:
+
+```bash
+nextflow run . \
+  -profile conda,large \
+  --input assets/samplesheet.csv \
+  --outdir results \
+  --uniform_apply_to ome_tiff \
+  --uniform_pixel_group_by batch \
+  --uniform_pixel_batch_map /path/to/patient_batch_map.csv \
+  --uniform_pixel_batch_sample_column sample \
+  --uniform_pixel_batch_column batch
+```

@@ -66,6 +66,27 @@
       "maximum": 5000000,
       "description": "Maximum sampled pixels per channel per image for histogram shift estimation in pixel mode. Higher values improve stability but increase runtime/memory."
     },
+    "uniform_pixel_group_by": {
+      "type": "string",
+      "default": "image",
+      "enum": ["image", "batch"],
+      "description": "Grouping strategy for pixel mode. 'image' computes per-image scaling (default). 'batch' computes one scale per batch and applies it to all images in that batch."
+    },
+    "uniform_pixel_batch_map": {
+      "type": "string",
+      "default": "",
+      "description": "Path to CSV/TSV table used when uniform_pixel_group_by=batch. Must include sample and batch columns (configure with uniform_pixel_batch_sample_column and uniform_pixel_batch_column)."
+    },
+    "uniform_pixel_batch_sample_column": {
+      "type": "string",
+      "default": "sample",
+      "description": "Column name in uniform_pixel_batch_map containing sample IDs. IDs must match OME-TIFF sample IDs derived from filename stem."
+    },
+    "uniform_pixel_batch_column": {
+      "type": "string",
+      "default": "batch",
+      "description": "Column name in uniform_pixel_batch_map containing batch labels for pixel batch normalization."
+    },
     "uniform_adata_group_by": {
       "type": "string",
       "default": "image",

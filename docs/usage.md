@@ -18,6 +18,10 @@ Optional tuning:
 --uniform_output_suffix _uniform \\
 --uniform_pixel_output_suffix _unifrom \\
 --uniform_pixel_sample_size 200000 \\
+--uniform_pixel_group_by image \\
+--uniform_pixel_batch_map /path/to/pixel_batch_map.csv \\
+--uniform_pixel_batch_sample_column sample \\
+--uniform_pixel_batch_column batch \\
 --uniform_adata_group_by image \\
 --uniform_adata_sample_size 200000 \\
 --uniform_adata_target cell_mean \\
@@ -36,6 +40,20 @@ nextflow run . \\
   --input /path/to/samplesheet.csv \\
   --outdir /path/to/results \\
   --uniform_apply_to ome_tiff
+```
+
+Pixel-level mode grouped by batch:
+
+```bash
+nextflow run . \\
+  -profile conda \\
+  --input /path/to/samplesheet.csv \\
+  --outdir /path/to/results \\
+  --uniform_apply_to ome_tiff \\
+  --uniform_pixel_group_by batch \\
+  --uniform_pixel_batch_map /path/to/patient_batch_map.csv \\
+  --uniform_pixel_batch_sample_column sample \\
+  --uniform_pixel_batch_column batch
 ```
 
 AnnData mode (`.h5ad`):

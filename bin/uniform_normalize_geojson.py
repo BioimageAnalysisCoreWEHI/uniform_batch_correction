@@ -39,6 +39,10 @@ def parse_args():
     parser.add_argument("--output-suffix", default="_uniform")
     parser.add_argument("--pixel-output-suffix", default="_unifrom")
     parser.add_argument("--pixel-sample-size", type=int, default=200000)
+    parser.add_argument("--pixel-group-by", choices=["image", "batch"], default="image")
+    parser.add_argument("--pixel-batch-map", default="")
+    parser.add_argument("--pixel-batch-sample-column", default="sample")
+    parser.add_argument("--pixel-batch-column", default="batch")
     parser.add_argument("--adata-group-by", default="image")
     parser.add_argument("--adata-sample-size", type=int, default=200000)
     parser.add_argument("--adata-target", choices=["all", "cell_mean"], default="all")
@@ -312,11 +316,112 @@ def extract_ome_channel_names(path, n_channels):
     return names
 
 
-def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sample_size):
+def read_delimited_rows(path):
+    file_path = Path(path)
+    delimiter = "\t" if file_path.suffix.lower() in {".tsv", ".txt"} else ","
+
+    with file_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter=delimiter)
+        if not reader.fieldnames:
+            raise ValueError(f"Pixel batch map has no header row: {path}")
+        rows = list(reader)
+    return rows
+
+
+def load_pixel_batch_map(mapping_path, sample_column, batch_column):
+    rows = read_delimited_rows(mapping_path)
+
+    if not rows:
+        raise ValueError(f"Pixel batch map is empty: {mapping_path}")
+
+    first_row = rows[0]
+    if sample_column not in first_row:
+        available = ", ".join(first_row.keys())
+        raise ValueError(
+            f"Pixel batch map is missing sample column '{sample_column}'. Available columns: {available}"
+        )
+    if batch_column not in first_row:
+        available = ", ".join(first_row.keys())
+        raise ValueError(
+            f"Pixel batch map is missing batch column '{batch_column}'. Available columns: {available}"
+        )
+
+    mapping = {}
+    for row in rows:
+        sample_id = str(row.get(sample_column, "")).strip()
+        batch_id = str(row.get(batch_column, "")).strip()
+        if not sample_id:
+            continue
+        mapping[sample_id] = batch_id if batch_id else "missing_batch"
+
+    if not mapping:
+        raise ValueError(
+            f"No valid sample/batch pairs found in pixel batch map: {mapping_path}"
+        )
+
+    return mapping
+
+
+def build_pixel_groups(paths, group_by, batch_map_path, batch_sample_column, batch_column):
     sample_ids = [Path(path).stem.replace('.ome', '') for path in paths]
+
+    if group_by == "image":
+        sample_group_labels = list(sample_ids)
+    elif group_by == "batch":
+        if not batch_map_path:
+            raise ValueError(
+                "--pixel-group-by batch requires --pixel-batch-map to be provided"
+            )
+        batch_map = load_pixel_batch_map(batch_map_path, batch_sample_column, batch_column)
+        missing = [sample_id for sample_id in sample_ids if sample_id not in batch_map]
+        sample_group_labels = [batch_map.get(sample_id, "missing_batch") for sample_id in sample_ids]
+        if missing:
+            preview = ", ".join(missing[:15])
+            tail = "" if len(missing) <= 15 else f" ... (+{len(missing) - 15} more)"
+            print(
+                "[pixel] Warning: assigning samples with missing batch mapping to 'missing_batch': "
+                f"{preview}{tail}"
+            )
+    else:
+        raise ValueError(f"Unsupported pixel grouping mode: {group_by}")
+
+    group_members = defaultdict(list)
+    group_order = []
+    for sample_idx, group_label in enumerate(sample_group_labels):
+        if group_label not in group_members:
+            group_order.append(group_label)
+        group_members[group_label].append(sample_idx)
+
+    return sample_ids, sample_group_labels, group_order, group_members
+
+
+def normalize_pixel(
+    paths,
+    num_bins,
+    min_value,
+    pixel_output_suffix,
+    pixel_sample_size,
+    pixel_group_by,
+    pixel_batch_map,
+    pixel_batch_sample_column,
+    pixel_batch_column,
+):
+    sample_ids, sample_group_labels, group_order, group_members = build_pixel_groups(
+        paths,
+        group_by=pixel_group_by,
+        batch_map_path=pixel_batch_map,
+        batch_sample_column=pixel_batch_sample_column,
+        batch_column=pixel_batch_column,
+    )
+
     n_samples = len(paths)
+    n_groups = len(group_order)
 
     print(f"[pixel] Loaded {n_samples} image sample(s)")
+    if pixel_group_by == "batch":
+        print(f"[pixel] Grouping samples by batch using {n_groups} batch(es)")
+    else:
+        print("[pixel] Grouping samples by image (default)")
 
     n_channels = None
     for path in paths:
@@ -333,31 +438,43 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
     scales_by_channel = {}
     ch_diagnostics = {}
 
-    if n_samples >= 2:
+    if n_groups >= 2:
         for channel in range(n_channels):
             if channel == 0 or (channel + 1) % 5 == 0 or channel == n_channels - 1:
                 print(f"[pixel] Processing channel {channel + 1}/{n_channels}: {channel_names[channel]}")
-            sample_values = []
+            group_values = []
             global_min = float("inf")
             global_max = float("-inf")
 
-            for path in paths:
-                image = load_image_as_cyx(path)
-                sampled = sample_pixels(image[channel], pixel_sample_size, min_value=min_value)
-                log_vals = log_transform(sampled, min_value=min_value)
+            for group_label in group_order:
+                per_image_samples = []
+                for sample_idx in group_members[group_label]:
+                    image = load_image_as_cyx(paths[sample_idx])
+                    sampled = sample_pixels(image[channel], pixel_sample_size, min_value=min_value)
+                    per_image_samples.append(sampled)
+
+                pooled = np.concatenate(per_image_samples) if per_image_samples else np.array([0.0], dtype=float)
+                log_vals = log_transform(pooled, min_value=min_value)
                 log_vals = log_vals[np.isfinite(log_vals)]
                 if log_vals.size == 0:
                     log_vals = np.array([0.0], dtype=float)
-                sample_values.append(log_vals)
+                group_values.append(log_vals)
                 global_min = min(global_min, float(np.min(log_vals)))
                 global_max = max(global_max, float(np.max(log_vals)))
 
             if not np.isfinite(global_min) or not np.isfinite(global_max) or global_max <= global_min:
                 scales_by_channel[channel] = [1.0] * n_samples
+                ch_diagnostics[channel] = {
+                    "reference_sample": sample_ids[0],
+                    "scales": [1.0] * n_samples,
+                    "shifts": [0] * n_samples,
+                    "global_min": 0.0,
+                    "global_max": 0.0,
+                }
                 continue
 
             hist_list = []
-            for log_vals in sample_values:
+            for log_vals in group_values:
                 counts, _ = np.histogram(log_vals, bins=num_bins, range=(global_min, global_max))
                 hist_list.append(counts.astype(float))
 
@@ -365,23 +482,32 @@ def normalize_pixel(paths, num_bins, min_value, pixel_output_suffix, pixel_sampl
             ref_idx = choose_reference(hist_matrix)
             shifts = compute_fft_shifts(hist_matrix[ref_idx], hist_list)
             increment = (global_max - global_min) / max(1, num_bins - 1)
-            scales = [math.exp(-shift * increment) for shift in shifts]
+            group_scales = [math.exp(-shift * increment) for shift in shifts]
 
-            scales_by_channel[channel] = scales
+            sample_scales = []
+            group_index_lookup = {label: idx for idx, label in enumerate(group_order)}
+            for sample_idx in range(n_samples):
+                group_label = sample_group_labels[sample_idx]
+                sample_scales.append(group_scales[group_index_lookup[group_label]])
+
+            ref_group = group_order[ref_idx]
+            ref_sample = sample_ids[group_members[ref_group][0]]
+
+            scales_by_channel[channel] = sample_scales
             ch_diagnostics[channel] = {
-                "reference_sample": sample_ids[ref_idx],
-                "scales": scales,
-                "shifts": shifts,
+                "reference_sample": ref_sample,
+                "scales": sample_scales,
+                "shifts": [shifts[group_index_lookup[sample_group_labels[idx]]] for idx in range(n_samples)],
                 "global_min": global_min,
                 "global_max": global_max,
             }
     else:
         for channel in range(n_channels):
-            scales_by_channel[channel] = [1.0]
+            scales_by_channel[channel] = [1.0] * n_samples
             ch_diagnostics[channel] = {
                 "reference_sample": sample_ids[0],
-                "scales": [1.0],
-                "shifts": [0],
+                "scales": [1.0] * n_samples,
+                "shifts": [0] * n_samples,
                 "global_min": 0.0,
                 "global_max": 0.0,
             }
@@ -1116,6 +1242,10 @@ def main():
                 min_value=args.min_value,
                 pixel_output_suffix=args.pixel_output_suffix,
                 pixel_sample_size=args.pixel_sample_size,
+                pixel_group_by=args.pixel_group_by,
+                pixel_batch_map=args.pixel_batch_map,
+                pixel_batch_sample_column=args.pixel_batch_sample_column,
+                pixel_batch_column=args.pixel_batch_column,
             )
             outputs.extend(tiff_outputs)
 
